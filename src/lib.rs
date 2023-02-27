@@ -249,7 +249,6 @@ pub struct StlData {
 
 impl StlData {
     /// Creates and populates a ``StlData`` from a file path.
-    ///
     pub fn read_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         // Optimization trick for reducing generic bloat
         // See https://www.possiblerust.com/pattern/non-generic-inner-functions
