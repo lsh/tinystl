@@ -30,12 +30,12 @@ jobs:
       - run: cargo check --features serde
       - run: cargo check --features bytemuck
 
-    clippy:
-      name: Clippy
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v3
-        - uses: dtolnay/rust-toolchain@nightly
-          with:
-            components: clippy, rust-src
-        - run: cargo clippy --tests -- -Dclippy::all
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rust-src
+      - run: cargo clippy --tests -- -Dclippy::all
