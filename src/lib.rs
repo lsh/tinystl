@@ -18,7 +18,7 @@
 //! ### Serde
 //! Derives ``Serialize`` and ``Deserialize`` for all types.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 
 #[cfg(feature = "bytemuck")]
 use bytemuck::{Pod, Zeroable};
@@ -143,6 +143,8 @@ pub enum Error {
     Parse(usize),
     /// Represents a failure to convert the number of triangles to a u32 (as required by the STL specification).
     TooManyFacets(<u32 as std::convert::TryFrom<usize>>::Error),
+    /// Represents a failure to convert an int.
+    TryFromInt(std::num::TryFromIntError),
     /// Represents any std::io result error.
     Io(std::io::Error),
 }
@@ -150,6 +152,12 @@ pub enum Error {
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
+    }
+}
+
+impl From<std::num::TryFromIntError> for Error {
+    fn from(e: std::num::TryFromIntError) -> Self {
+        Self::TryFromInt(e)
     }
 }
 
@@ -171,6 +179,7 @@ impl std::fmt::Display for Error {
                 write!(f, "{e:?}")
             }
             Error::Io(e) => write!(f, "{e:?}"),
+            Error::TryFromInt(e) => write!(f, "{e:?}"),
         }
     }
 }
@@ -418,19 +427,39 @@ impl StlData {
     /// For internal use.
     /// Sets the contents ``StlData`` from a binary buffer.
     fn read_binary_buffer(&mut self, mut reader: impl BufRead) -> Result<()> {
-        let mut buffer = [0; HEADER_BINARY_SIZE];
-        reader.read_exact(&mut buffer)?;
-        self.header = Some(buffer);
+        let mut buffer = vec![0; HEADER_BINARY_SIZE];
+
+        let mut header_reader = (&mut reader).take(u64::try_from(HEADER_BINARY_SIZE)?);
+        let header_bytes_read = header_reader.read_to_end(&mut buffer)?;
+        if header_bytes_read != HEADER_BINARY_SIZE {
+            return Err(Error::MissingData);
+        }
+
+        let mut header_buffer = [0; HEADER_BINARY_SIZE];
+        header_buffer.copy_from_slice(&buffer[0..HEADER_BINARY_SIZE]);
+        self.header = Some(header_buffer);
+        buffer.clear();
+
+        let mut facet_count_reader = (&mut reader).take(4);
+        let facet_count_bytes_read = facet_count_reader.read_to_end(&mut buffer)?;
+        if facet_count_bytes_read != 4 {
+            return Err(Error::MissingData);
+        }
         let mut facet_count_buf = [0; 4];
-        reader.read_exact(&mut facet_count_buf)?;
+        facet_count_buf.copy_from_slice(&buffer[0..4]);
+
         let facet_count = u32::from_le_bytes(facet_count_buf);
         if facet_count == 0 {
             return Err(Error::MissingData);
         }
+        buffer.clear();
 
-        let mut buffer = [0; TRIANGLE_BINARY_SIZE];
         for _ in 0..facet_count {
-            reader.read_exact(&mut buffer)?;
+            let mut facet_reader = (&mut reader).take(u64::try_from(TRIANGLE_BINARY_SIZE)?);
+            let facet_buffer_bytes_read = facet_reader.read_to_end(&mut buffer)?;
+            if facet_buffer_bytes_read != TRIANGLE_BINARY_SIZE {
+                return Err(Error::MissingData);
+            }
             let (normal_buffer, vertex_buffer) = buffer.split_at(F32_SIZE * 3);
             let facet = Triangle::from(vertex_buffer);
             let mut n = [0.0; 3];
@@ -448,6 +477,7 @@ impl StlData {
             };
             self.normals.push(normal);
             self.triangles.push(facet);
+            buffer.clear();
         }
         Ok(())
     }
@@ -455,7 +485,7 @@ impl StlData {
     /// Write the contents of a ``StlData`` to a buffer using the binary specification.
     pub fn write_binary_buffer(&self, mut writer: impl Write) -> Result<()> {
         writer.write_all(self.header.unwrap_or([0; HEADER_BINARY_SIZE]).as_slice())?;
-        let n_triangles = u32::try_from(self.triangles.len()).map_err(Error::TooManyFacets)?;
+        let n_triangles = u32::try_from(self.triangles.len())?;
         writer.write_all(n_triangles.to_le_bytes().as_slice())?;
         let null_bytes = [0; 12];
 

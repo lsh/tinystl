@@ -177,9 +177,5 @@ fn non_existing() {
 #[test]
 fn incomplete_binary() {
     let res = read_file("testdata/incomplete_binary.stl");
-    if let Err(Error::Io(e)) = res {
-        assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof);
-    } else {
-        panic!("Encounted an unexpected error");
-    }
+    assert!(matches!(res, Err(Error::MissingData)));
 }
